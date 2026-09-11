@@ -26,17 +26,18 @@ The project began as a Raspberry Pi Pico prototype and was later migrated to an 
 | G | Ground |
 | UPDI | Programming |
 
-## Light Detection
+## Current Functionality
 
-The photoresistor divider is powered only during ADC measurements to reduce idle current.
+The device is designed to sit inside a closed drawer and remain in a low-power sleep state until activity is detected.
 
-The ATtiny wakes approximately every 250 ms, powers the sensor, takes a reading, turns the sensor back off, and returns to sleep.
+### Drawer Trigger
 
-A drawer opening is detected when the light level increases by a specified amount.
+The ATtiny1616 wakes approximately every 250 ms and briefly powers the photoresistor circuit to check the current light level.
 
-Current settings:
+A significant increase in light is treated as the drawer being opened.
+
+Current light detection settings:
 
 ```cpp
 const int CHANGE_THRESHOLD = 75;
 const int REARM_DROP = 75;
-const int SOUND_CHANCE = 4;
