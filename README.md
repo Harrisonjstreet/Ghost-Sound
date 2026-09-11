@@ -152,24 +152,34 @@ This reduces idle current compared with powering the divider continuously from t
 
 ## Low-Power Operation
 
-The firmware includes several power-saving features:
+Idle current was one of the main design challenges in this project.
 
-- ATtiny1616 power-down sleep mode
-- RTC wake approximately every 250 ms
-- Photoresistor powered only during measurements
-- First ADC conversion discarded after sensor power-up
-- Sensor immediately powered back off after the reading
-- Hardware PWM used for buzzer output
+Early versions of the device used a Raspberry Pi Pico and consumed roughly **17–18 mA while idle**, which was too high for a device intended to stay powered inside a drawer for long periods.
 
-Idle current during testing has been approximately:
+After migrating to the ATtiny1616 and adding sleep-mode optimizations, idle current was reduced to approximately:
 
 ```text
 0.3 mA
 ```
 
----
+The main power-saving techniques are:
 
-## Sensor Reading Process
+- ATtiny1616 power-down sleep mode
+- RTC wake approximately every 250 ms
+- Photoresistor powered only during measurements
+- Sensor power supplied from GPIO Pin 3 instead of continuously from the 3V rail
+- First ADC conversion discarded after sensor power-up
+- Sensor immediately powered back off after the reading
+- Hardware PWM used for buzzer output
+- Unnecessary indicator LED removed from the breakout board
+
+### Sensor Power Gating
+
+The photoresistor voltage divider originally remained powered continuously, which contributed to idle current.
+
+To reduce this, the top of the photoresistor was moved from the 3V rail to GPIO Pin 3.
+
+The sensor is now only powered briefly when a measurement is required.
 
 Each light measurement follows this sequence:
 
@@ -189,6 +199,19 @@ Take second ADC reading
 Pin 3 LOW
   ↓
 Return to sleep
+```
+
+This allows the photoresistor divider to remain unpowered for nearly the entire sleep period.
+
+The ATtiny wakes approximately every 250 ms, while the sensor is only powered for a few milliseconds during each reading.
+
+This change reduced measured idle current from roughly **0.6 mA to around 0.3 mA** during testing.
+
+### Battery-Life Goal
+
+The target for the project is to remain powered for at least **30 days** without requiring a battery change or recharge.
+
+Reducing idle current is especially important because the device spends almost all of its time waiting in the dark, while sound playback only occurs occasionally.
 ```
 
 ---
