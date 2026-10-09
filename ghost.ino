@@ -11,27 +11,34 @@ const uint8_t LIGHT_PIN        = 0;
 const uint8_t BUZZER_PIN       = 7;
 const uint8_t BUTTON_PIN       = 2;
 const uint8_t SENSOR_POWER_PIN = 3;
+const uint8_t DEBUG_LED_PIN    = 4;
 
 
 // ==================================================
-// LIGHT CHANGE SETTINGS
+// LIGHT DETECTION SETTINGS
 // ==================================================
 
-// TEST SETTINGS
 const int CHANGE_THRESHOLD = 75;
-const int REARM_DROP = 75;
+
+// Require 2 consecutive samples above threshold
+const int TRIGGER_CONFIRM_COUNT = 2;
+
+// 4 wakes × ~250 ms = ~1 second cooldown
+const int COOLDOWN_WAKE_COUNT = 4;
+
+// Number of readings used to establish a fresh baseline
+const int BASELINE_SAMPLE_COUNT = 4;
 
 
 // ==================================================
 // RANDOM TRIGGER SETTINGS
 // ==================================================
 
-// TEST MODE:
-// 1 = 100% chance of sound
-const int SOUND_CHANCE = 5;
+// 1 in 4 = 25% chance of any sound
+const int SOUND_CHANCE = 4;
 
-// If a sound happens:
-// 1 in 50 = funny sound
+// If sound happens:
+// 1 in 50 = crazy ghost
 const int FUNNY_SOUND_CHANCE = 50;
 
 
@@ -79,7 +86,6 @@ void playRisingSound();
 // ==================================================
 
 ISR(RTC_PIT_vect) {
-
   RTC.PITINTFLAGS = RTC_PI_bm;
 }
 
@@ -89,7 +95,6 @@ ISR(RTC_PIT_vect) {
 // ==================================================
 
 void buttonWake() {
-
 }
 
 
@@ -99,33 +104,47 @@ void buttonWake() {
 
 int readLightSensor() {
 
-  // Turn sensor divider ON
-  digitalWrite(
-    SENSOR_POWER_PIN,
-    HIGH
-  );
+  // Power photoresistor divider
+  digitalWrite(SENSOR_POWER_PIN, HIGH);
 
-  // Give divider time to settle
-  delay(5);
-
+  // Let divider settle
+  delay(2);
 
   // Throw away first ADC reading
   analogRead(LIGHT_PIN);
 
-
   // Use second ADC reading
-  int reading =
-    analogRead(LIGHT_PIN);
+  int reading = analogRead(LIGHT_PIN);
 
-
-  // Turn sensor divider OFF
-  digitalWrite(
-    SENSOR_POWER_PIN,
-    LOW
-  );
-
+  // Turn sensor divider back off
+  digitalWrite(SENSOR_POWER_PIN, LOW);
 
   return reading;
+}
+
+
+// ==================================================
+// FRESH BASELINE
+// ==================================================
+
+int establishBaseline() {
+
+  long total = 0;
+
+  for (
+    int i = 0;
+    i < BASELINE_SAMPLE_COUNT;
+    i++
+  ) {
+
+    total += readLightSensor();
+
+    delay(10);
+  }
+
+  return
+    total /
+    BASELINE_SAMPLE_COUNT;
 }
 
 
@@ -140,10 +159,8 @@ void setBuzzerFrequency(float frequency) {
       (CPU_HZ / (PRESCALER * frequency)) - 1
     );
 
-
   TCA0.SINGLE.PERBUF =
     period;
-
 
   TCA0.SINGLE.CMP2BUF =
     period / 2;
@@ -166,7 +183,6 @@ void buzzerOff() {
   TCA0.SINGLE.CTRLB &=
     ~TCA_SINGLE_CMP2EN_bm;
 
-
   digitalWrite(
     BUZZER_PIN,
     LOW
@@ -180,48 +196,34 @@ void buzzerOff() {
 
 void playGhost(bool allowSecret) {
 
-  float pitchFactor =
-    1.0;
-
+  float pitchFactor = 1.0;
 
   const float LOW_PITCH_FACTOR =
     LOW_FREQ / BASE_FREQ;
 
-
   const float dt =
     UPDATE_MS / 1000.0;
-
 
   const float glideAmount =
     dt / (GLIDE_TAU + dt);
 
-
-  unsigned long elapsedMs =
-    0;
-
+  unsigned long elapsedMs = 0;
 
   const unsigned long durationMs =
     (unsigned long)(
       NORMAL_DURATION * 1000.0
     );
 
-
   uint8_t tapCount =
     allowSecret ? 1 : 0;
-
 
   bool lastButtonPressed =
     digitalRead(BUTTON_PIN) == LOW;
 
-
-  unsigned long lastTapTime =
-    0;
+  unsigned long lastTapTime = 0;
 
 
-  setBuzzerFrequency(
-    BASE_FREQ
-  );
-
+  setBuzzerFrequency(BASE_FREQ);
 
   buzzerOn();
 
@@ -235,7 +237,7 @@ void playGhost(bool allowSecret) {
 
 
     // ==================================================
-    // SECRET MULTI-TAP CHECK
+    // SECRET MULTI-PRESS CHECK
     // ==================================================
 
     if (
@@ -253,12 +255,12 @@ void playGhost(bool allowSecret) {
       ) {
 
         if (
-          elapsedMs - lastTapTime >=
+          elapsedMs -
+          lastTapTime >=
           BUTTON_DEBOUNCE_MS
         ) {
 
           tapCount++;
-
 
           lastTapTime =
             elapsedMs;
@@ -271,12 +273,9 @@ void playGhost(bool allowSecret) {
 
             buzzerOff();
 
-
             delay(30);
 
-
             playRisingSound();
-
 
             return;
           }
@@ -296,7 +295,8 @@ void playGhost(bool allowSecret) {
     float cyclePosition =
       fmod(
         t,
-        2.0 * PITCH_INTERVAL
+        2.0 *
+        PITCH_INTERVAL
       );
 
 
@@ -308,8 +308,7 @@ void playGhost(bool allowSecret) {
       PITCH_INTERVAL
     ) {
 
-      targetPitch =
-        1.0;
+      targetPitch = 1.0;
     }
 
     else {
@@ -319,6 +318,7 @@ void playGhost(bool allowSecret) {
     }
 
 
+    // Smooth glide
     pitchFactor +=
       (
         targetPitch -
@@ -327,6 +327,7 @@ void playGhost(bool allowSecret) {
       * glideAmount;
 
 
+    // Vibrato
     float vibrato =
       sin(
         2.0 *
@@ -366,7 +367,7 @@ void playGhost(bool allowSecret) {
 
 
 // ==================================================
-// CURSED / FUNNY SOUND
+// CRAZY / FUNNY GHOST SOUND
 // ==================================================
 
 void playRisingSound() {
@@ -381,7 +382,8 @@ void playRisingSound() {
 
   const unsigned long durationMs =
     (unsigned long)(
-      FUNNY_DURATION * 1000.0
+      FUNNY_DURATION *
+      1000.0
     );
 
 
@@ -418,7 +420,8 @@ void playRisingSound() {
       ) {
 
         pitchProgress =
-          (t / 8.0) * 0.55;
+          (t / 8.0) *
+          0.55;
       }
 
 
@@ -426,7 +429,8 @@ void playRisingSound() {
       else {
 
         float x =
-          (t - 8.0) / 2.0;
+          (t - 8.0) /
+          2.0;
 
 
         pitchProgress =
@@ -451,21 +455,20 @@ void playRisingSound() {
         VIBRATO_DEPTH;
 
 
-      // Vibrato gets stronger after 4 seconds
       if (
         t >= 4.0
       ) {
 
         float x =
-          (t - 4.0) / 6.0;
+          (t - 4.0) /
+          6.0;
 
 
         if (
           x > 1.0
         ) {
 
-          x =
-            1.0;
+          x = 1.0;
         }
 
 
@@ -559,9 +562,7 @@ void playRisingSound() {
 
 void attemptRandomSound() {
 
-  // TEST MODE:
-  // SOUND_CHANCE = 1 means 100%
-
+  // 25% chance of any sound
   if (
     random(SOUND_CHANCE) != 0
   ) {
@@ -570,8 +571,14 @@ void attemptRandomSound() {
   }
 
 
+  // If sound happens:
+  // 1/50 crazy
+  // 49/50 regular
+
   if (
-    random(FUNNY_SOUND_CHANCE) == 0
+    random(
+      FUNNY_SOUND_CHANCE
+    ) == 0
   ) {
 
     playRisingSound();
@@ -593,12 +600,10 @@ void setupSleepTimer() {
   RTC.CLKSEL =
     RTC_CLKSEL_INT32K_gc;
 
-
   RTC.PITINTCTRL =
     RTC_PI_bm;
 
-
-  // Wake every ~250 ms
+  // Wake approximately every 250 ms
   RTC.PITCTRLA =
     RTC_PERIOD_CYC8192_gc |
     RTC_PITEN_bm;
@@ -632,28 +637,23 @@ void goToSleep() {
 
 void setup() {
 
+  // ==================================================
+  // LIGHT SENSOR
+  // ==================================================
+
   pinMode(
     LIGHT_PIN,
     INPUT
   );
 
 
+  // ==================================================
+  // BUTTON
+  // ==================================================
+
   pinMode(
     BUTTON_PIN,
     INPUT_PULLUP
-  );
-
-
-  pinMode(
-    SENSOR_POWER_PIN,
-    OUTPUT
-  );
-
-
-  // Sensor OFF by default
-  digitalWrite(
-    SENSOR_POWER_PIN,
-    LOW
   );
 
 
@@ -665,6 +665,43 @@ void setup() {
     FALLING
   );
 
+
+  // ==================================================
+  // SENSOR POWER
+  // ==================================================
+
+  pinMode(
+    SENSOR_POWER_PIN,
+    OUTPUT
+  );
+
+
+  digitalWrite(
+    SENSOR_POWER_PIN,
+    LOW
+  );
+
+
+  // ==================================================
+  // DEBUG LED
+  // ==================================================
+
+  pinMode(
+    DEBUG_LED_PIN,
+    OUTPUT
+  );
+
+
+  // OFF = ready
+  digitalWrite(
+    DEBUG_LED_PIN,
+    LOW
+  );
+
+
+  // ==================================================
+  // BUZZER
+  // ==================================================
 
   pinMode(
     BUZZER_PIN,
@@ -685,8 +722,7 @@ void setup() {
   takeOverTCA0();
 
 
-  TCA0.SINGLE.CTRLA =
-    0;
+  TCA0.SINGLE.CTRLA = 0;
 
 
   TCA0.SINGLE.CTRLB =
@@ -719,8 +755,16 @@ void setup() {
     TCA_SINGLE_ENABLE_bm;
 
 
+  // ==================================================
+  // RTC
+  // ==================================================
+
   setupSleepTimer();
 
+
+  // ==================================================
+  // RANDOM SEED
+  // ==================================================
 
   randomSeed(
     readLightSensor() +
@@ -739,8 +783,8 @@ void loop() {
     false;
 
 
-  static bool lightArmed =
-    true;
+  static bool inCooldown =
+    false;
 
 
   static bool buttonWasPressed =
@@ -751,12 +795,16 @@ void loop() {
     0;
 
 
-  static int peakLight =
+  static int confirmCount =
+    0;
+
+
+  static int cooldownCount =
     0;
 
 
   // ==================================================
-  // READ LIGHT
+  // READ PHOTORESISTOR
   // ==================================================
 
   int lightValue =
@@ -764,7 +812,7 @@ void loop() {
 
 
   // ==================================================
-  // INITIALIZE BASELINE
+  // INITIAL BASELINE
   // ==================================================
 
   if (
@@ -772,11 +820,7 @@ void loop() {
   ) {
 
     baseline =
-      lightValue;
-
-
-    peakLight =
-      lightValue;
+      establishBaseline();
 
 
     initialized =
@@ -789,7 +833,9 @@ void loop() {
   // ==================================================
 
   bool buttonPressed =
-    digitalRead(BUTTON_PIN) == LOW;
+    digitalRead(
+      BUTTON_PIN
+    ) == LOW;
 
 
   if (
@@ -806,93 +852,122 @@ void loop() {
 
 
   // ==================================================
-  // PHOTORESISTOR
+  // COOLDOWN STATE
   // ==================================================
 
   if (
-    lightArmed
+    inCooldown
   ) {
 
-    int lightChange =
-      lightValue -
-      baseline;
+    cooldownCount++;
 
-
-    // ==================================================
-    // LIGHT INCREASE DETECTED
-    // ==================================================
 
     if (
-      lightChange >=
-      CHANGE_THRESHOLD
+      cooldownCount >=
+      COOLDOWN_WAKE_COUNT
     ) {
 
-      lightArmed =
+      // Establish a fresh baseline
+      baseline =
+        establishBaseline();
+
+
+      confirmCount =
+        0;
+
+
+      cooldownCount =
+        0;
+
+
+      inCooldown =
         false;
 
 
-      peakLight =
-        lightValue;
-
-
-      // 100% during testing
-      attemptRandomSound();
+      // OFF = ready again
+      digitalWrite(
+        DEBUG_LED_PIN,
+        LOW
+      );
     }
 
 
-    // ==================================================
-    // OTHERWISE UPDATE BASELINE
-    // ==================================================
+    goToSleep();
 
-    else {
+    return;
+  }
 
-      baseline =
-        (
-          baseline * 7L +
-          lightValue
-        )
-        / 8;
+
+  // ==================================================
+  // READY STATE
+  // ==================================================
+
+  int lightChange =
+    lightValue -
+    baseline;
+
+
+  // ==================================================
+  // POSSIBLE TRIGGER
+  // ==================================================
+
+  if (
+    lightChange >=
+    CHANGE_THRESHOLD
+  ) {
+
+    confirmCount++;
+
+
+    // Require TWO consecutive readings
+    if (
+      confirmCount >=
+      TRIGGER_CONFIRM_COUNT
+    ) {
+
+      confirmCount =
+        0;
+
+
+      inCooldown =
+        true;
+
+
+      cooldownCount =
+        0;
+
+
+      // LED ON = confirmed potential trigger
+      digitalWrite(
+        DEBUG_LED_PIN,
+        HIGH
+      );
+
+
+      // 25% random sound decision
+      attemptRandomSound();
     }
   }
 
 
   // ==================================================
-  // WAIT FOR LIGHT TO DROP
+  // NO TRIGGER
   // ==================================================
 
   else {
 
-    if (
-      lightValue >
-      peakLight
-    ) {
-
-      peakLight =
-        lightValue;
-    }
+    // Candidate trigger failed
+    confirmCount =
+      0;
 
 
-    int lightDrop =
-      peakLight -
-      lightValue;
-
-
-    if (
-      lightDrop >=
-      REARM_DROP
-    ) {
-
-      lightArmed =
-        true;
-
-
-      baseline =
-        lightValue;
-
-
-      peakLight =
-        lightValue;
-    }
+    // Slowly follow normal environmental drift
+    baseline =
+      (
+        baseline * 15L +
+        lightValue
+      )
+      / 16;
   }
 
 
